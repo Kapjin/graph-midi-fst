@@ -1,0 +1,13 @@
+#[extratrees 사용법]#
+cd /mnt/storage1/kap/MIDI_FST/new
+# > mlp_fst 사용했었다고 가정.
+
+python3 train_midi_feature_extratrees_v2_logging.py train \
+  --split-manifest /mnt/storage1/kap/MIDI_FST/new/midi_feature_mlp_split.json \
+  --output-dir ./feature_extratrees
+
+python3 train_midi_feature_extratrees_v2_logging.py infer \
+  --model ./feature_extratrees/midi_feature_extratrees.joblib \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean \
+  --label human \
+  --count 100

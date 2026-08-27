@@ -1,0 +1,88 @@
+#[gat-muq_fst 사용법]#
+
+# ============================================================
+# 0. 환경
+# ============================================================
+
+cd /mnt/storage1/kap
+
+export MIDI_ROOT=/mnt/storage1/kap/MIDI_FST
+export PYTHON=$MIDI_ROOT/.venv-midi/bin/python
+
+export GRAPH_MUQ_SCRIPT=$MIDI_ROOT/new/train_graph_muq_fst_logging.py
+
+export MUQ_MODEL=OpenMuQ/MuQ-large-msd-iter
+
+export GRAPH_MUQ_SPLIT=$MIDI_ROOT/new/split_graph_muq.json
+export GRAPH_MUQ_TRAIN_DIR=$MIDI_ROOT/new/train_graph_muq
+export GRAPH_MUQ_CACHE_DIR=$MIDI_ROOT/new/cache_graph_muq
+
+source "$MIDI_ROOT/.venv-midi/bin/activate"
+export PYTHONPATH=/mnt/storage1/kap:$PYTHONPATH
+
+mkdir -p "$GRAPH_MUQ_TRAIN_DIR"
+mkdir -p "$GRAPH_MUQ_CACHE_DIR"
+
+
+# ============================================================
+# 1. split
+# ============================================================
+
+"$PYTHON" "$GRAPH_MUQ_SCRIPT" make-split \
+  --real-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/real_songs \
+    /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/A_full_generation/A1_real/MTF-Jamendo_music_subset \
+  --real-counts \
+    300 \
+    300 \
+  --fake-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/fake_songs \
+    /mnt/storage1/kap/zzdata/dataset/MoM_dataset/mp3/yue \
+  --fake-counts \
+    300 \
+    300 \
+  --output "$GRAPH_MUQ_SPLIT" \
+  --val-ratio 0.2 \
+  --seed 42
+
+
+# ============================================================
+# 2. stage1
+# ============================================================
+
+"$PYTHON" "$GRAPH_MUQ_SCRIPT" train-stage1 \
+  --muq-model "$MUQ_MODEL" \
+  --split-manifest "$GRAPH_MUQ_SPLIT" \
+  --output-dir "$GRAPH_MUQ_TRAIN_DIR" \
+  --cache-dir "$GRAPH_MUQ_CACHE_DIR" \
+  --batch-size 2 \
+  --grad-accum 32
+
+
+# ============================================================
+# 3. stage2
+# ============================================================
+
+"$PYTHON" "$GRAPH_MUQ_SCRIPT" train-stage2 \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$GRAPH_MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --split-manifest "$GRAPH_MUQ_SPLIT" \
+  --output-dir "$GRAPH_MUQ_TRAIN_DIR" \
+  --cache-dir "$GRAPH_MUQ_CACHE_DIR" \
+  --batch-size 8 \
+  --extraction-batch-size 2
+
+
+# ============================================================
+# 4. infer
+# ============================================================
+
+"$PYTHON" "$GRAPH_MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$GRAPH_MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_MUQ_TRAIN_DIR/graph_muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/A_full_generation/A1_real/MTF-Jamendo_music_subset \
+  --label human \
+  --exclude-split "$GRAPH_MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_MUQ_TRAIN_DIR/infer_results.txt"

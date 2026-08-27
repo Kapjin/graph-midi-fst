@@ -1,0 +1,197 @@
+#[midi_fst 사용법]#
+
+# 0. 기본환경
+cd /mnt/storage1/kap
+
+# ============================================================
+# 경로 설정
+# ============================================================
+
+export MIDI_ROOT=/mnt/storage1/kap/MIDI_FST
+export PYTHON=$MIDI_ROOT/.venv-midi/bin/python
+
+# 새 학습 코드
+export SCRIPT=$MIDI_ROOT/new/train_midi_fst_logging.py
+
+# 기존 MusicBERT 관련 경로
+export MUZIC_DIR=$MIDI_ROOT/muzic
+export MUSICBERT_CKPT=$MIDI_ROOT/models/midi_fst/checkpoints/checkpoint_last_musicbert_base.pt
+export MUSICBERT_DATA=$MIDI_ROOT/models/midi_fst
+
+# split
+export SPLIT=$MIDI_ROOT/new/split.json
+
+# 이번 학습 결과 저장 위치
+export TRAIN_DIR=$MIDI_ROOT/new/train
+
+# cache 저장 위치
+export CACHE_DIR=$MIDI_ROOT/new/cache
+
+
+# ============================================================
+# 가상환경
+# ============================================================
+
+source "$MIDI_ROOT/.venv-midi/bin/activate"
+
+# train_midi_fst_logging.py가 MIDI_FST 패키지를 찾을 수 있도록
+export PYTHONPATH=/mnt/storage1/kap:$PYTHONPATH
+
+
+# ============================================================
+# 패키지 설치
+# 이미 설치했다면 다시 할 필요 없음
+# ============================================================
+
+"$PYTHON" -m pip install --upgrade "pip<24.1"
+"$PYTHON" -m pip install -r "$MIDI_ROOT/requirements-midi.txt"
+
+# torch 2.0.1과 호환되는 torchaudio
+"$PYTHON" -m pip uninstall -y torchaudio
+"$PYTHON" -m pip install --no-cache-dir --no-deps torchaudio==2.0.2
+
+# 이번에 추가한 로그/그래프 기능
+"$PYTHON" -m pip install tensorboard matplotlib
+
+# 설치 확인
+"$PYTHON" -c "import torch, torchaudio, fairseq, miditoolkit; print('Dependencies OK'); print('CUDA:', torch.cuda.is_available())"
+
+
+# ============================================================
+# 필요한 폴더
+# ============================================================
+
+mkdir -p "$MIDI_ROOT/new"
+mkdir -p "$TRAIN_DIR"
+mkdir -p "$CACHE_DIR"
+
+#1. MusicBERT 사전
+"$PYTHON" "$SCRIPT" make-dictionary \
+  --output-dir "$MUSICBERT_DATA"
+
+#2. split.json
+"$PYTHON" "$SCRIPT" make-split \
+  --real-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/real_songs \
+    /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/A_full_generation/A1_real/MTF-Jamendo_music_subset  \
+  --real-counts \
+    300 \
+    300 \
+  --fake-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/fake_songs \
+    /mnt/storage1/kap/zzdata/dataset/MoM_dataset/mp3/yue \
+  --fake-counts \
+    300 \
+    300 \
+  --output "$SPLIT" \
+  --val-ratio 0.2 \
+  --seed 42
+
+#3. stage1
+"$PYTHON" "$SCRIPT" train-stage1 \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --split-manifest "$SPLIT" \
+  --output-dir "$TRAIN_DIR" \
+  --cache-dir "$CACHE_DIR" \
+  --batch-size 2 \
+  --grad-accum 32
+
+#4. stage2
+"$PYTHON" "$SCRIPT" train-stage2 \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --split-manifest "$SPLIT" \
+  --output-dir "$TRAIN_DIR" \
+  --cache-dir "$CACHE_DIR" \
+  --batch-size 8 \
+  --extraction-batch-size 2
+
+#5. infer
+
+# Human
+# ------------------------------------------------------------
+
+# SONICS/HumAI real - same-source unseen
+"$PYTHON" "$SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$TRAIN_DIR/midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/real_songs \
+  --label human \
+  --exclude-split "$SPLIT" \
+  --count 100
+
+
+# MTG - same-source unseen
+"$PYTHON" "$SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$TRAIN_DIR/midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/midi/MTG \
+  --label human \
+  --exclude-split "$SPLIT" \
+  --count 100
+
+
+# LMD clean - OOD
+"$PYTHON" "$SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$TRAIN_DIR/midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean \
+  --label human \
+  --exclude-split "$SPLIT" \
+  --count 100
+
+
+# ------------------------------------------------------------
+# AI
+# ------------------------------------------------------------
+
+# SONICS/HumAI fake - same-source unseen
+"$PYTHON" "$SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$TRAIN_DIR/midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/fake_songs \
+  --label ai \
+  --exclude-split "$SPLIT" \
+  --count 100
+
+
+# YuE - same-source unseen
+"$PYTHON" "$SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$TRAIN_DIR/midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/midi/yue \
+  --label ai \
+  --exclude-split "$SPLIT" \
+  --count 100
+
+
+# Text2MIDI - OOD
+"$PYTHON" "$SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$TRAIN_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$TRAIN_DIR/midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_Text2midi \
+  --label ai \
+  --exclude-split "$SPLIT" \
+  --count 100

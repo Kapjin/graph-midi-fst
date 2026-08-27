@@ -1,0 +1,120 @@
+#[mlp_segment_fst 사용법]#
+# > mlp_fst 사용했었다고 가정.
+# ============================================================
+# 1. Train / Validation split 생성
+#
+# Real
+#   - LMD Clean: 300
+#   - SONICS Real: 300
+#
+# Fake
+#   - Text2MIDI: 200
+#   - MIDILM: 200
+#   - SONICS/HumAIr Fake: 200
+#
+# 각 폴더 내부에서 80% Train / 20% Validation
+# ============================================================
+
+python3 /mnt/storage1/kap/MIDI_FST/new/train_midi_feature_mlp_v5_logging.py make-split \
+  --real-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean 300 \
+  --real-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/real_songs 300 \
+  --fake-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_Text2midi 200 \
+  --fake-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_MIDILM 200 \
+  --fake-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/fake_songs 200 \
+  --val-ratio 0.2 \
+  --output ./midi_feature_mlp_split.json
+
+# ============================================================
+# 2. MLP 학습
+# ============================================================
+
+cd /mnt/storage1/kap/MIDI_FST/new
+python3 train_midi_feature_mlp_v11_segment_logging.py train \
+  --split-manifest /mnt/storage1/kap/MIDI_FST/graph/midi_feature_mlp_split.json \
+  --output-dir ./feature_mlp_segment32 \
+  --epochs 100 \
+  --batch-size 32
+
+
+# ============================================================
+# 3. 추론
+# 각 폴더에서 100개씩
+# 학습/Validation에 사용된 MIDI는 자동 제외
+# ============================================================
+
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean \
+  --label human \
+  --count 100
+
+/mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean
+/mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/real_songs
+/mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_Text2midi
+/mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_MIDILM
+/mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/fake_songs
+
+////
+# Real (given) - LMD Clean
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean \
+  --label human \
+  --count 100
+
+# Real (transcribed) - SONICS Real
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/real_songs \
+  --label human \
+  --count 100
+
+# Real (transcribed) - HAIM A1
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/midi/MTG \
+  --label human \
+  --count 100
+
+# Fake (created) - Text2MIDI
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_Text2midi \
+  --label ai \
+  --count 100
+
+# Fake (given) - Text2MIDI Short
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_Text2midi_short \
+  --label ai \
+  --count 100
+
+# Fake (created) - MIDILM
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_MIDILM \
+  --label ai \
+  --count 100
+
+# Fake (created) - PhraseLDM
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/PhraseLDM \
+  --label ai \
+  --count 100
+
+# Fake (transcribed) - SONICS/HumAIr Fake
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/fake_songs \
+  --label ai \
+  --count 100
+
+# Fake (transcribed) - MoM YuE
+python3 train_midi_feature_mlp_v11_segment_logging.py infer \
+  --checkpoint ./feature_mlp_segment32/midi_feature_mlp_best.pt \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/midi/yue \
+  --label ai \
+  --count 100
+}

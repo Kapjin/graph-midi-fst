@@ -1,0 +1,234 @@
+#[gat-midi_fst 사용법]#
+
+# ============================================================
+# 0. 환경
+# ============================================================
+
+cd /mnt/storage1/kap
+
+export MIDI_ROOT=/mnt/storage1/kap/MIDI_FST
+export PYTHON=$MIDI_ROOT/.venv-midi/bin/python
+
+export GRAPH_SCRIPT=$MIDI_ROOT/new/train_graph_midi_fst_logging.py
+
+export MUZIC_DIR=$MIDI_ROOT/muzic
+export MUSICBERT_CKPT=$MIDI_ROOT/models/midi_fst/checkpoints/checkpoint_last_musicbert_base.pt
+export MUSICBERT_DATA=$MIDI_ROOT/models/midi_fst
+
+export GRAPH_SPLIT=$MIDI_ROOT/new/split_graph.json
+export GRAPH_TRAIN_DIR=$MIDI_ROOT/new/train_graph
+export GRAPH_CACHE_DIR=$MIDI_ROOT/new/cache_graph
+
+source "$MIDI_ROOT/.venv-midi/bin/activate"
+export PYTHONPATH=/mnt/storage1/kap:$PYTHONPATH
+
+mkdir -p "$GRAPH_TRAIN_DIR"
+mkdir -p "$GRAPH_CACHE_DIR"
+
+# ============================================================
+# 1. dictionary
+# ============================================================
+
+"$PYTHON" "$GRAPH_SCRIPT" make-dictionary \
+  --output-dir "$MUSICBERT_DATA"
+
+# ============================================================
+# 2. split
+# ============================================================
+
+"$PYTHON" "$GRAPH_SCRIPT" make-split \
+  --real-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/real_songs \
+    /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/midi/MTG \
+  --real-counts \
+    300 \
+    300 \
+  --fake-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/fake_songs \
+    /mnt/storage1/kap/zzdata/dataset/MoM_dataset/midi/yue \
+  --fake-counts \
+    300 \
+    300 \
+  --output "$GRAPH_SPLIT" \
+  --val-ratio 0.2 \
+  --seed 42
+
+# ============================================================
+# 3. stage1
+# ============================================================
+"$PYTHON" "$GRAPH_SCRIPT" train-stage1 \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --split-manifest "$GRAPH_SPLIT" \
+  --output-dir "$GRAPH_TRAIN_DIR" \
+  --cache-dir "$GRAPH_CACHE_DIR" \
+  --batch-size 2 \
+  --grad-accum 32
+
+# ============================================================
+# 4. stage2
+# ============================================================
+
+"$PYTHON" "$GRAPH_SCRIPT" train-stage2 \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_TRAIN_DIR/musicbert_stage1_best.pt" \
+  --split-manifest "$GRAPH_SPLIT" \
+  --output-dir "$GRAPH_TRAIN_DIR" \
+  --cache-dir "$GRAPH_CACHE_DIR" \
+  --batch-size 8 \
+  --extraction-batch-size 2
+
+
+# ============================================================
+# 5. infer
+# ============================================================
+
+##GAT
+PYTHON="/mnt/storage1/kap/MIDI_FST/.venv-midi/bin/python"
+GRAPH_SCRIPT="/mnt/storage1/kap/MIDI_FST/new/train_graph_midi_fst_logging.py"
+
+MUZIC_DIR="/mnt/storage1/kap/MIDI_FST/muzic"
+MUSICBERT_CKPT="/mnt/storage1/kap/MIDI_FST/models/midi_fst/checkpoints/checkpoint_last_musicbert_base.pt"
+MUSICBERT_DATA="/mnt/storage1/kap/MIDI_FST/models/midi_fst"
+
+GRAPH_SPLIT="/mnt/storage1/kap/MIDI_FST/new/split_graph.json"
+GRAPH_STAGE1_DIR="/mnt/storage1/kap/MIDI_FST/new/train_graph"
+GRAPH_STAGE2_DIR="/mnt/storage1/kap/MIDI_FST/new/train_graph_gat"
+
+##GCN
+cd /mnt/storage1/kap
+
+PYTHON="/mnt/storage1/kap/MIDI_FST/.venv-midi/bin/python"
+GRAPH_SCRIPT="/mnt/storage1/kap/MIDI_FST/new/train_graph_midi_fst_gcn_logging.py"
+
+MUZIC_DIR="/mnt/storage1/kap/MIDI_FST/muzic"
+MUSICBERT_CKPT="/mnt/storage1/kap/MIDI_FST/models/midi_fst/checkpoints/checkpoint_last_musicbert_base.pt"
+MUSICBERT_DATA="/mnt/storage1/kap/MIDI_FST/models/midi_fst"
+
+GRAPH_SPLIT="/mnt/storage1/kap/MIDI_FST/new/split_graph.json"
+GRAPH_STAGE1_DIR="/mnt/storage1/kap/MIDI_FST/new/train_graph"
+GRAPH_STAGE2_DIR="/mnt/storage1/kap/MIDI_FST/new/train_graph_gcn"
+
+source /mnt/storage1/kap/MIDI_FST/.venv-midi/bin/activate
+export PYTHONPATH=/mnt/storage1/kap:$PYTHONPATH
+
+##RGCN
+cd /mnt/storage1/kap
+
+PYTHON="/mnt/storage1/kap/MIDI_FST/.venv-midi/bin/python"
+GRAPH_SCRIPT="/mnt/storage1/kap/MIDI_FST/new/train_graph_midi_fst_rgcn_logging.py"
+
+MUZIC_DIR="/mnt/storage1/kap/MIDI_FST/muzic"
+MUSICBERT_CKPT="/mnt/storage1/kap/MIDI_FST/models/midi_fst/checkpoints/checkpoint_last_musicbert_base.pt"
+MUSICBERT_DATA="/mnt/storage1/kap/MIDI_FST/models/midi_fst"
+
+GRAPH_SPLIT="/mnt/storage1/kap/MIDI_FST/new/split_graph.json"
+GRAPH_STAGE1_DIR="/mnt/storage1/kap/MIDI_FST/new/train_graph"
+GRAPH_STAGE2_DIR="/mnt/storage1/kap/MIDI_FST/new/train_graph_rgcn"
+
+source /mnt/storage1/kap/MIDI_FST/.venv-midi/bin/activate
+export PYTHONPATH=/mnt/storage1/kap:$PYTHONPATH
+
+
+##same
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/real_songs \
+  --label human \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/midi/MTG \
+  --label human \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_clean \
+  --label human \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/POP909-Dataset/POP909_midi \
+  --label human \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/midi/fake_songs \
+  --label ai \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/midi/yue \
+  --label ai \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/LMD_dataset/lmd_Text2midi \
+  --label ai \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+"$PYTHON" "$GRAPH_SCRIPT" infer \
+  --muzic-dir "$MUZIC_DIR" \
+  --musicbert-checkpoint "$MUSICBERT_CKPT" \
+  --musicbert-data-bin "$MUSICBERT_DATA" \
+  --stage1-checkpoint "$GRAPH_STAGE1_DIR/musicbert_stage1_best.pt" \
+  --stage2-checkpoint "$GRAPH_STAGE2_DIR/graph_midi_fst_stage2_best.pt" \
+  --midi-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/midi/riffusion \
+  --label ai \
+  --exclude-split "$GRAPH_SPLIT" \
+  --count 100 \
+  --result-file "$GRAPH_STAGE2_DIR/infer_results.txt"
+
+
+##RGCN

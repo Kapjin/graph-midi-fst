@@ -1,0 +1,195 @@
+#[MuQ-FST 학습 + 추론]#
+
+# ============================================================
+# 0. 기본환경
+# ============================================================
+
+cd /mnt/storage1/kap
+
+export MIDI_ROOT=/mnt/storage1/kap/MIDI_FST
+export PYTHON=$MIDI_ROOT/.venv-midi/bin/python
+
+# 현재 사용 코드
+export MUQ_SCRIPT=$MIDI_ROOT/new/train_muq_fst_logging.py
+
+# MuQ
+export MUQ_MODEL=OpenMuQ/MuQ-large-msd-iter
+
+# MuQ-FST 전용 경로
+export MUQ_SPLIT=$MIDI_ROOT/new/split_muq.json
+export MUQ_TRAIN_DIR=$MIDI_ROOT/new/train_muq
+export MUQ_CACHE_DIR=$MIDI_ROOT/new/cache_muq
+
+source "$MIDI_ROOT/.venv-midi/bin/activate"
+
+export PYTHONPATH=/mnt/storage1/kap:$PYTHONPATH
+
+mkdir -p "$MUQ_TRAIN_DIR"
+mkdir -p "$MUQ_CACHE_DIR"
+
+
+# ============================================================
+# 1. Split 생성
+#
+# Human
+#   SONICS/HumAI real : 300
+#   MTF-Jamendo       : 300
+#
+# AI
+#   SONICS/HumAI fake : 300
+#   YuE               : 300
+#
+# 총 1200곡
+# ============================================================
+
+"$PYTHON" "$MUQ_SCRIPT" make-split \
+  --real-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/real_songs \
+    /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/A_full_generation/A1_real/MTF-Jamendo_music_subset \
+  --real-counts \
+    300 \
+    300 \
+  --fake-dir \
+    /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/fake_songs \
+    /mnt/storage1/kap/zzdata/dataset/MoM_dataset/mp3/yue \
+  --fake-counts \
+    300 \
+    300 \
+  --output "$MUQ_SPLIT" \
+  --val-ratio 0.2 \
+  --seed 42
+
+
+# ============================================================
+# 2. Stage 1
+# ============================================================
+
+"$PYTHON" "$MUQ_SCRIPT" train-stage1 \
+  --muq-model "$MUQ_MODEL" \
+  --split-manifest "$MUQ_SPLIT" \
+  --output-dir "$MUQ_TRAIN_DIR" \
+  --cache-dir "$MUQ_CACHE_DIR" \
+  --batch-size 2 \
+  --grad-accum 32
+
+
+# ============================================================
+# 3. Stage 2
+# ============================================================
+
+"$PYTHON" "$MUQ_SCRIPT" train-stage2 \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --split-manifest "$MUQ_SPLIT" \
+  --output-dir "$MUQ_TRAIN_DIR" \
+  --cache-dir "$MUQ_CACHE_DIR" \
+  --batch-size 8 \
+  --extraction-batch-size 2
+
+
+# ============================================================
+# 4. Infer
+#
+# 각 데이터셋 100곡
+# train/validation에 사용된 음원은 제외
+#
+# 결과:
+# $MUQ_TRAIN_DIR/infer_results.txt
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Human
+# ------------------------------------------------------------
+
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/FMA/FMA_3000 \
+  --label human \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/mp3/riffusion \
+  --label ai \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+
+///
+# SONICS/HumAI real
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/real_songs \
+  --label human \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+
+# MTF-Jamendo
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/HAIM_dataset/A_full_generation/A1_real/MTF-Jamendo_music_subset \
+  --label human \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+
+# ------------------------------------------------------------
+# AI
+# ------------------------------------------------------------
+
+# SONICS/HumAI fake
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/sonics+humair/mp3/fake_songs \
+  --label ai \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+
+# YuE
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/mp3/yue \
+  --label ai \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+
+# Riffusion
+"$PYTHON" "$MUQ_SCRIPT" infer \
+  --muq-model "$MUQ_MODEL" \
+  --stage1-checkpoint "$MUQ_TRAIN_DIR/muq_stage1_best.pt" \
+  --stage2-checkpoint "$MUQ_TRAIN_DIR/muq_fst_stage2_best.pt" \
+  --audio-dir /mnt/storage1/kap/zzdata/dataset/MoM_dataset/mp3/riffusion \
+  --label ai \
+  --exclude-split "$MUQ_SPLIT" \
+  --count 100 \
+  --result-file "$MUQ_TRAIN_DIR/infer_results.txt"
+
+
+# ============================================================
+# 5. TensorBoard
+# ============================================================
+
+tensorboard --logdir "$MUQ_TRAIN_DIR/tensorboard"
